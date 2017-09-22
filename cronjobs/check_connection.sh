@@ -1,8 +1,7 @@
 #!/bin/bash
 
 function pingGW() {
-        ping -q -w 1 -c 1 `ip r | grep default | cut -d ' ' -f 3` > /dev/null && return 1 || return 0
-        #ping -q -w 1 -c 1 `ip r | grep default | cut -d ' ' -f 3` > /dev/null && return 1 || ping -q -c 1 google.com && return 1 || return 0
+        ping -q -w 1 -c 1 `ip r | grep default | cut -d ' ' -f 3` > /dev/null && return 1 || ping -q -c 1 google.com && return 1 || return 0
 }
 
 internetConnection=$(pingGW)
