@@ -1,0 +1,7 @@
+*filter
+
+-t nat -A POSTROUTING -o eth0 -j MASQUERADE
+-A FORWARD -i eth0 -o [INTERFACE] -m state --state RELATED,ESTABLISHED -j ACCEPT
+-A FORWARD -i [INTERFACE] -o eth0 -j ACCEPT
+
+COMMIT

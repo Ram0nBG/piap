@@ -1,0 +1,196 @@
+#!/bin/bash
+
+welcome() {
+	echo -e ":: PIAP "
+	echo "::"
+	echo -e ":: Usage: piap <command>"
+	echo "::"
+	echo -e ":: Available commands\t\t"
+	echo -e ":: -l, list\t\t\tview connected clients"
+	echo -e ":: start\t\t\tStart your Access Point"
+	echo -e ":: stop\t\t\t\tStop your Access Point"
+	echo -e ":: status\t\t\tShow status of your Access Point"
+	echo -e ":: restart\t\t\tRestart your Access Point"
+	echo -e ":: change\t\t\tChange the name and the password"
+	echo -e ":: -u, uninstall\t\tUninstall PIAP"
+}
+
+listClients() {
+
+RUNNING=$(isRunning)
+
+if [[ $? < 1 ]];then
+	echo ":: Your Access Point is not running"
+	exit 1
+fi
+
+#ask hostapd about connected clients and get their Mac addresses
+hwaddr=$(sudo hostapd_cli all_sta | grep -o "^dot11RSNAStatsSTAAddress=.*" | sed 's/.*=//')
+
+declare -A clients
+
+for mac in $hwaddr
+do
+        #now that we have a mac address lets ask arp if he knows about it and get the respective hostname and an IP address
+        data=$(arp -a | grep -o ".*$mac" | sed 's/\sat\s.*//' | sed 's/[()]//g' | sed 's/\s/\t\t\t\t\t/')
+        if [[ -n $data ]];then
+                clients[$mac]=$data
+        fi
+done
+
+
+if [[ ${#clients[@]} < 1 ]]; then
+        echo "There's no connected clients at the moment"
+	exit 1
+fi
+
+echo ".:: Connected clients (${#clients[@]}) ::."
+echo ""
+#echo -e means enable interpretation of backslash escapes
+echo -e "Hostname\t\t\t|\tIP\t\t\t|\tMAC ADDRESS"
+echo ""
+
+for mac in "${!clients[@]}"
+do
+        echo -e "${clients[$mac]}\t\t\t$mac"
+done
+}
+
+isRunning() {
+	if (( $(ps -ef | grep -v grep | grep hostapd | wc -l) > 0 && $(ps -ef | grep -v grep | grep dnsmasq | wc -l) > 0 ))
+	then
+        	return 1
+        else
+        	return 0
+	fi
+}
+
+change() {
+	echo ":: Name of the Access point ?"
+	read -r AP
+	_AP=${AP// }
+	if [[ ${#_AP} < 1 ]];then
+		echo ":: Please provide a correct name for your Access Point"
+		exit 1
+	fi
+
+	echo ":: Password (at least 8 characters long)"
+	read -r PSWD
+	_PSWD=${PSWD// }
+	if [[ ${#_PSWD} < 8 ]];then
+		echo ":: The password should be at least 8 characters long"
+		exit 1
+	fi
+	
+	PASSPHRASE=$(wpa_passphrase $AP $PSWD | sed -nE 's/^[[:blank:]]+psk=(.*)/\1/p')
+
+	sudo sed -i "s/^ssid=.*$/ssid=$AP/" /etc/hostapd/hostapd.conf
+	sudo sed -i "s/^wpa_psk=.*/wpa_psk=$PASSPHRASE/" /etc/hostapd/hostapd.conf
+	
+	sudo service hostapd stop
+	sudo service dnsmasq stop
+
+	sudo service dnsmasq start
+	sudo service hostapd start
+
+	echo ":: done"
+}
+
+start() {
+RUNNING=$(isRunning)
+
+	if [[ $? > 0 ]];then
+		echo ":: Your Access Point is running"
+		exit 1
+	fi
+	sudo service dnsmasq start
+	sudo service hostapd start
+	echo ":: Your Access Point is started"
+}
+
+stop() {
+RUNNING=$(isRunning)
+
+	if [[ $? < 1 ]];then
+		echo ":: Your Access Point is already stopped"
+		exit 1
+	fi
+	sudo service dnsmasq stop	
+	sudo service hostapd stop
+	echo ":: Your Access Point is stopped now"
+}
+
+status() {
+INTERFACE=$(grep -i "^INTERFACE=.*$" /etc/hostapd/hostapd.conf | sed 's/INTERFACE=//I')
+SSID=$(grep -i "^SSID=.*$" /etc/hostapd/hostapd.conf | sed 's/SSID=//I')
+IP=$(ifconfig $INTERFACE | grep "inet addr" | cut -d ':' -f 2 | cut -d ' ' -f 1)
+RUNNING=$(isRunning)
+
+	if [[ $? > 0 ]];then
+		echo ":: Running on $INTERFACE interface"
+		echo ":: $INTERFACE IP: $IP"
+		echo ":: SSID: $SSID"
+	else
+		echo "Stopped"
+	fi
+}
+
+restart() {
+RUNNING=$(isRunning)
+
+	if [[ $? < 1 ]];then
+		echo ":: Your Access Point is not running. Use piap start instead"
+		exit 1
+	fi
+
+	echo ":: stopping the Access Point"
+	sudo service hostapd stop
+	sudo service dnsmasq stop
+	echo ":: starting the Access Point"
+	sudo service hostapd start
+	sudo service hostapd start
+	echo ":: done"
+}
+
+uninstall() {
+	read -p "Are you sure you want to uninstall PIAP ? [Y/n]" -n 1
+	echo ""
+	if [[ ! $REPLY =~ ^[Yy]$ ]];then
+		echo ":: No further action will be taken"
+		exit 1
+	fi
+	
+	echo ":: preparing uninstallation process"
+	echo ""
+	sudo service hostapd stop
+	sudo service dnsmasq stop
+	sudo service lighttpd stop
+	echo ":: uninstalling packages"
+	sudo apt-get purge -y dnsmasq hostapd lighttpd
+	sudo apt-get autoremove -y
+	echo ":: deleting directories"
+	sudo rm -r /etc/.piap
+	sudo rm -r /etc/hostapd
+	sudo rm -r /var/www
+	sudo mv /etc/network/interfaces.old /etc/network/interfaces
+	sudo rm -f /etc/profile.d/piap_motd.sh
+	sudo rm -f /etc/profile.d/login_alert.sh
+	#deletes itself
+	sudo rm -f /usr/local/bin/piap
+	echo ".:: PIAP was removed from your system ! ::."
+}
+
+#if [[ $# = 0 ]];then
+#welcome
+#fi
+
+case "$1" in
+"-l" | "list"		) listClients;;
+"-u" | "uninstall"	) uninstall;;
+"start"			) start;;
+"stop"			) stop;;
+"status"		) status;;
+"restart"		) restart;;
+"change"		) change;;
+*			) welcome;;
+esac
