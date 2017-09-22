@@ -75,11 +75,11 @@ boot() {
 }
 
 updatePackages() {
-	$SUDO apt-get update
+	sudo apt-get update
 }
 
 abortScript() {
-	$SUDO rm -f $APP_DIR/installing
+	sudo rm -f $APP_DIR/installing
 }
 
 chooseInterface() {
